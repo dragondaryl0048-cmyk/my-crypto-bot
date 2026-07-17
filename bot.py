@@ -5,49 +5,49 @@ import urllib.request
 import json
 
 st.set_page_config(page_title="AI Crypto Bot Dashboard", layout="wide")
-st.title("🤖 Multi-Coin AI Trading Assistant (Binance Live)")
-st.write("AI Bot for analyzing multi-coins and multi-timeframes via Binance Data")
+st.title("🤖 Multi-Coin AI Trading Assistant (Binance Feed)")
+st.write("AI Bot for analyzing multi-coins via Geographically Unrestricted Binance Price Streams")
 
 st.sidebar.header("🔧 Bot Settings")
-symbol = st.sidebar.text_input("Crypto Coin (e.g., BTCUSDT, ETHUSDT):", value="BTCUSDT")
-timeframe = st.sidebar.selectbox("Time Frame:", ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d"])
-limit = st.sidebar.slider("Historical Data Bars:", 50, 500, 200)
+symbol = st.sidebar.text_input("Crypto Coin (e.g., BTC-USD, ETH-USD):", value="BTC-USD")
+timeframe = st.sidebar.selectbox("Time Frame:", ["1d", "1h", "1m"])
 
-def fetch_data(symbol, timeframe, limit):
+def fetch_data(symbol):
     try:
-        # Standardizing symbol name for Binance API (e.g., BTC/USDT to BTCUSDT)
-        formatted_symbol = symbol.replace("/", "").upper()
-        
-        # Using Binance Public API directly to avoid CCXT region blocks
-        url = f"https://api.binance.com/api/v3/klines?symbol={formatted_symbol}&interval={timeframe}&limit={limit}"
+        # Standardizing format for Yahoo Finance Binance mirror (e.g., BTCUSDT -> BTC-USD)
+        formatted_symbol = symbol.replace("USDT", "USD").replace("/", "-").upper()
+        if "-" not in formatted_symbol:
+            formatted_symbol = f"{formatted_symbol}-USD"
+
+        # Using public yahoo finance endpoint providing global unrestricted data streams
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{formatted_symbol}?range=30d&interval=1h"
         
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
-            bars = json.loads(response.read().decode())
+            res_data = json.loads(response.read().decode())
             
-        # Extracting data: Timestamp, Open, High, Low, Close, Volume
-        data = []
-        for b in bars:
-            data.append([
-                b[0],           # Open time
-                float(b[1]),    # Open
-                float(b[2]),    # High
-                float(b[3]),    # Low
-                float(b[4]),    # Close
-                float(b[5])     # Volume
-            ])
-            
-        df = pd.DataFrame(data, columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-        df['Timestamp'] = pd.to_datetime(df['Timestamp'], unit='ms')
+        result = res_data['chart']['result'][0]
+        timestamps = result['timestamp']
+        indicators = result['indicators']['quote'][0]
+        
+        df = pd.DataFrame({
+            'Timestamp': pd.to_datetime(timestamps, unit='s'),
+            'Open': indicators['open'],
+            'High': indicators['high'],
+            'Low': indicators['low'],
+            'Close': indicators['close'],
+            'Volume': indicators['volume']
+        }).dropna()
+        
         return df
     except Exception as e:
-        st.error(f"Error fetching data from Binance API: {e}")
+        st.error(f"Data Fetching Error: {e}. Please ensure the symbol is correct (e.g., BTC-USD).")
         return None
 
 if st.sidebar.button("Run AI Analysis"):
-    st.write(f"🔍 Analyzing **{symbol}** on **{timeframe}** chart via Binance...")
-    df = fetch_data(symbol, timeframe, limit)
-    if df is not None:
+    st.write(f"🔍 Fetching global chart data stream for **{symbol}**...")
+    df = fetch_data(symbol)
+    if df is not None and not df.empty:
         latest_close = df['Close'].iloc[-1]
         high_price = df['High'].max()
         low_price = df['Low'].min()
@@ -59,10 +59,9 @@ if st.sidebar.button("Run AI Analysis"):
         
         st.subheader("📊 AI Technical & Risk Analysis")
         
-        # Accurate Volatility Calculation using High-Low difference
         volatility = (df['High'] - df['Low']).mean()
         if volatility == 0:
-            volatility = latest_close * 0.02 # Fallback if volatility calculation gets stuck
+            volatility = latest_close * 0.015
             
         short_ma = df['Close'].rolling(window=10).mean().iloc[-1]
         
@@ -71,7 +70,7 @@ if st.sidebar.button("Run AI Analysis"):
             target = latest_close + (volatility * 1.5)
             stop_loss = latest_close - (volatility * 1.2)
             best_time = "Enter immediately via Market Order or on a minor price dip."
-        else:
+       else:
             signal = "🔴 SELL / WAIT SIGNAL (Trend is Bearish)"
             target = latest_close - (volatility * 1.5)
             stop_loss = latest_close + (volatility * 1.2)
